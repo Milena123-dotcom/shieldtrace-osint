@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="author" content="Negoiță Milena-Cristina" />
+    <meta
+      name="description"
+      content="ShieldTrace este un MVP de identity exposure creat de Negoiță Milena-Cristina."
+    />
+    <title>ShieldTrace | Identity Exposure</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">ST</div>
+          <div>
+            <strong>ShieldTrace</strong>
+            <span>Identity Exposure</span>
+          </div>
+        </div>
+
+        <nav class="nav-list" aria-label="Navigare principala">
+          <button class="nav-item active" data-view="scan" type="button" title="Scanare">
+            <span class="icon">⌕</span>
+            <span>Scanare</span>
+          </button>
+          <button class="nav-item" data-view="report" type="button" title="Raport">
+            <span class="icon">◴</span>
+            <span>Raport</span>
+          </button>
+          <button class="nav-item" data-view="history" type="button" title="Istoric">
+            <span class="icon">↘</span>
+            <span>Istoric</span>
+          </button>
+          <button class="nav-item" data-view="monitoring" type="button" title="Monitorizare">
+            <span class="icon">●</span>
+            <span>Monitorizare</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="creator-line">Creat de <strong>Negoiță Milena-Cristina</strong></div>
+          <div class="demo-line">
+            <span class="status-dot"></span>
+            <span>Live OSINT prin backend/API-uri</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Consilier de securitate personala</p>
+            <h1>Ce poate afla despre tine un atacator?</h1>
+            <p class="creator-note">Un produs creat de Negoiță Milena-Cristina</p>
+          </div>
+          <div class="topbar-actions">
+            <button class="ghost-button" id="loadSample" type="button">Demo</button>
+            <button class="primary-button" id="exportReport" type="button">Export JSON</button>
+          </div>
+        </header>
+
+        <section class="view active" id="view-scan">
+          <div class="layout-grid">
+            <form class="panel form-panel" id="scanForm">
+              <div class="section-heading">
+                <h2>Profil analizat</h2>
+                <span>MVP</span>
+              </div>
+
+              <label>
+                <span>Nume si prenume</span>
+                <input name="fullName" autocomplete="name" placeholder="Ana Popescu" required />
+              </label>
+
+              <div class="two-col">
+                <label>
+                  <span>Tara</span>
+                  <input name="country" autocomplete="country-name" placeholder="Romania" required />
+                </label>
+                <label>
+                  <span>Oras</span>
+                  <input name="city" autocomplete="address-level2" placeholder="Bucuresti" />
+                </label>
+              </div>
+
+              <div class="two-col">
+                <label>
+                  <span>Email</span>
+                  <input name="email" autocomplete="email" placeholder="ana@example.com" />
+                </label>
+                <label>
+                  <span>Telefon</span>
+                  <input name="phone" autocomplete="tel" placeholder="+40 7xx xxx xxx" />
+                </label>
+              </div>
+
+              <label>
+                <span>Username-uri cunoscute</span>
+                <input name="usernames" placeholder="ana.pop, anap_dev, ana.photo" />
+              </label>
+
+              <label>
+                <span>Domeniu personal</span>
+                <input name="domain" placeholder="anapopescu.ro" />
+              </label>
+
+              <fieldset class="module-grid">
+                <legend>Module active</legend>
+                <label class="check-card">
+                  <input type="checkbox" name="modules" value="google" checked />
+                  <span>Google</span>
+                </label>
+                <label class="check-card">
+                  <input type="checkbox" name="modules" value="social" checked />
+                  <span>Social</span>
+                </label>
+                <label class="check-card">
+                  <input type="checkbox" name="modules" value="documents" checked />
+                  <span>Documente</span>
+                </label>
+                <label class="check-card">
+                  <input type="checkbox" name="modules" value="email" checked />
+                  <span>Email</span>
+                </label>
+                <label class="check-card">
+                  <input type="checkbox" name="modules" value="username" checked />
+                  <span>Username</span>
+                </label>
+              </fieldset>
+
+              <label class="consent-row">
+                <input type="checkbox" name="consent" required />
+                <span>Confirm ca analizez propriile date sau am acordul persoanei vizate.</span>
+              </label>
+
+              <button class="primary-button full" type="submit">Ruleaza analiza</button>
+            </form>
+
+            <section class="panel live-panel">
+              <div class="section-heading">
+                <h2>Rezultat rapid</h2>
+                <span id="scanState">nepornit</span>
+              </div>
+
+              <div class="score-card">
+                <div class="score-ring" id="scoreRing" style="--score: 0">
+                  <span id="scoreValue">0</span>
+                </div>
+                <div>
+                  <p class="score-label">Identity Exposure Score</p>
+                  <h3 id="riskLevel">Nicio analiza</h3>
+                  <p id="riskSummary">Completeaza formularul si ruleaza analiza MVP.</p>
+                </div>
+              </div>
+
+              <div class="metrics-row" id="metricsRow">
+                <div><strong>0</strong><span>profile</span></div>
+                <div><strong>0</strong><span>documente</span></div>
+                <div><strong>0</strong><span>date sensibile</span></div>
+              </div>
+
+              <div class="section-heading compact">
+                <h2>Intrebari la care raspunde raportul</h2>
+              </div>
+              <div class="question-list">
+                <span>Ce date personale sunt publice?</span>
+                <span>Cat de credibil ar fi un atac de phishing?</span>
+                <span>Ce actiune reduce cel mai mult riscul?</span>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-report">
+          <div class="report-grid">
+            <section class="panel report-main">
+              <div class="section-heading">
+                <h2>Raport de expunere</h2>
+                <span id="reportDate">-</span>
+              </div>
+              <div id="aiAnalysis" class="analysis-box">
+                Ruleaza o analiza pentru a genera raportul.
+              </div>
+              <div class="section-heading compact">
+                <h2>Date gasite online</h2>
+                <span>justificare scor</span>
+              </div>
+              <div class="evidence-list" id="evidenceList"></div>
+              <div class="section-heading compact">
+                <h2>Factori de risc</h2>
+                <span>punctaj</span>
+              </div>
+              <div class="finding-table" id="findingTable"></div>
+            </section>
+
+            <section class="panel">
+              <div class="section-heading">
+                <h2>Recomandari</h2>
+                <span>impact</span>
+              </div>
+              <div class="recommendation-list" id="recommendations"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-history">
+          <section class="panel">
+            <div class="section-heading">
+              <h2>Evolutia scorului</h2>
+              <span>ultimele scanari</span>
+            </div>
+            <div class="chart" id="historyChart"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-monitoring">
+          <section class="panel">
+            <div class="section-heading">
+              <h2>Monitorizare</h2>
+              <span>saptamanal</span>
+            </div>
+            <div class="alert-list" id="alertsList"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
