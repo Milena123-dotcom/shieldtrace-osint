@@ -2,8 +2,9 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "https://shieldtrace-api.onrender.com/api/$1"
+       "source": "/api/(.*)",
+       "destination": "https://shieldtrace-api-production.up.railway.app/api/$1"
+    }
     },
     {
       "source": "/",
