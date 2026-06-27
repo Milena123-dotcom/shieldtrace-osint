@@ -10,19 +10,8 @@ const state = {
   history: [],
 };
 
-const riskRules = [
-  { key: "phone", label: "Telefon public", points: 15, category: "Date personale" },
-  { key: "email", label: "Email public", points: 10, category: "Date personale" },
-  { key: "city", label: "Locatie aproximativa", points: 8, category: "Date personale" },
-  { key: "domain", label: "Domeniu personal", points: 10, category: "Professional Exposure" },
-  { key: "usernames", label: "Username reutilizat", points: 14, category: "Corelare conturi" },
-  { key: "documents", label: "Documente indexate", points: 20, category: "Identity Theft" },
-  { key: "social", label: "Profile sociale multiple", points: 12, category: "Social Engineering" },
-  { key: "media", label: "Poze suficiente pentru impersonare", points: 11, category: "Deepfake" },
-];
-
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -54,90 +43,44 @@ function formToProfile() {
   };
 }
 
-function scoreProfile(profile, evidence) {
-  const evidenceByRule = {
-    phone: evidence.filter((item) => item.type === "Telefon"),
-    email: evidence.filter((item) => item.type === "Email"),
-    city: evidence.filter((item) => item.type === "Locatie"),
-    domain: evidence.filter((item) => profile.domain && item.url.includes(profile.domain)),
-    usernames: evidence.filter((item) => item.type === "Username"),
-    documents: evidence.filter((item) => item.type === "Document"),
-    social: evidence.filter((item) => item.type === "Profil social"),
-    media: evidence.filter((item) => item.type === "Media"),
-  };
-
-  let score = 0;
-  const matches = [];
-  riskRules.forEach((rule) => {
-    const linkedEvidence = evidenceByRule[rule.key] || [];
-    if (linkedEvidence.length) {
-      score += rule.points;
-      matches.push({ ...rule, evidence: linkedEvidence });
-    }
-  });
-
-  score = Math.min(100, score + Math.min(12, evidence.length * 2));
-  return { score, matches };
-}
-
-function levelForScore(score) {
-  if (score >= 70) return { label: "HIGH", color: "var(--danger)" };
-  if (score >= 45) return { label: "MEDIUM", color: "var(--warn)" };
-  return { label: "LOW", color: "var(--ok)" };
-}
-
-function recommendationsFor(matches, profile) {
-  const map = {
-    phone: ["Ascunde sau inlocuieste numarul de telefon public", 18],
-    email: ["Foloseste un email public separat de emailul personal", 11],
-    city: ["Elimina orasul din fragmentele publice care il leaga de numele complet", 8],
-    domain: [`Revizuieste paginile indexate de pe ${profile.domain || "domeniul personal"}`, 10],
-    usernames: ["Separa username-urile personale de cele profesionale", 16],
-    documents: ["Sterge sau redacteaza documentele publice care contin date personale", 20],
-    social: ["Curata bio-urile si detaliile personale din profilele sociale", 15],
-    media: ["Redu fotografiile publice reutilizabile pentru impersonare", 9],
-  };
-
-  return matches
-    .map((rule) => ({
-      title: map[rule.key][0],
-      impact: map[rule.key][1],
-      basedOn: rule.evidence.map((item) => `${item.type}: ${evidenceDisplayValue(item)}`).join(" | "),
-      reason: rule.evidence[0]?.risk || "Reduce expunerea publica.",
-    }))
-    .sort((a, b) => b.impact - a.impact)
-    .slice(0, 5);
-}
-
 function evidenceDisplayValue(item) {
-  return item.value || item.title || item.url;
+  return item.value || item.title || item.url || "";
 }
 
-function buildReport(profile, evidence = [], scanMeta = null) {
-  const risk = scoreProfile(profile, evidence);
-  const level = levelForScore(risk.score);
-  const recs = recommendationsFor(risk.matches, profile);
-  const socialCount = evidence.some((item) => item.type === "Profil social")
-    ? Math.max(2, profile.usernames.length + 2)
-    : 0;
-  const documentCount = evidence.filter((item) => item.type === "Document").length;
+function riskColor(level) {
+  const normalized = String(level || "").toLowerCase();
+  if (normalized === "critical" || normalized === "high") return "var(--danger)";
+  if (normalized === "medium") return "var(--warn)";
+  return "var(--ok)";
+}
+
+function buildReport(profile, scanResult = {}) {
+  const risk = scanResult.risk || { score: 0, level: "Low", reasons: [] };
+  const aiReport = scanResult.aiReport || {
+    summary: "Nu au fost găsite informații publice.",
+    attack_scenarios: [],
+    recommendations: [],
+  };
+  const evidence = Array.isArray(scanResult.evidence) ? scanResult.evidence : [];
+  const reasons = Array.isArray(risk.reasons) ? risk.reasons : [];
 
   return {
     createdAt: new Date().toISOString(),
     profile,
-    score: risk.score,
-    identityTheftProbability: Math.min(95, Math.round(risk.score * 0.82 + documentCount * 9)),
-    level: level.label,
-    color: level.color,
     evidence,
-    scanMeta,
-    matchedRules: risk.matches,
-    recommendations: recs,
+    risk: {
+      score: Number(risk.score) || 0,
+      level: risk.level || "Low",
+      reasons,
+    },
+    aiReport,
+    pdfUrl: scanResult.pdfUrl || null,
+    pdfError: scanResult.pdfError || null,
+    scanMeta: scanResult.meta || null,
     metrics: {
-      profiles: socialCount,
-      documents: documentCount,
-      sensitive: risk.matches.filter((rule) => rule.category !== "Corelare conturi").length,
-      photos: evidence.filter((item) => item.type === "Media").length,
+      profiles: evidence.filter((item) => ["Profil social", "github", "gravatar"].includes(item.type)).length,
+      documents: evidence.filter((item) => item.type === "Document" || String(item.url || "").toLowerCase().includes(".pdf")).length,
+      riskFactors: reasons.length,
     },
   };
 }
@@ -149,32 +92,34 @@ async function scanOnline(profile) {
     body: JSON.stringify(profile),
   });
 
+  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(`Scanarea live a esuat cu status ${response.status}`);
+    throw new Error(payload.error || `Scanarea live a esuat cu status ${response.status}`);
   }
 
-  return response.json();
+  return payload;
 }
 
 function renderReport(report) {
+  const score = report.risk.score;
+  const level = report.risk.level;
+  const reasons = report.risk.reasons;
+  const aiReport = report.aiReport;
+
   document.querySelector("#scanState").textContent = "finalizat";
-  document.querySelector("#scoreValue").textContent = report.score;
-  document.querySelector("#scoreRing").style.setProperty("--score", report.score);
-  document.querySelector("#scoreRing").style.setProperty("--ring-color", report.color);
-  document.querySelector("#riskLevel").textContent = report.level;
+  document.querySelector("#scoreValue").textContent = score;
+  document.querySelector("#scoreRing").style.setProperty("--score", score);
+  document.querySelector("#scoreRing").style.setProperty("--ring-color", riskColor(level));
+  document.querySelector("#riskLevel").textContent = level;
   document.querySelector("#riskSummary").textContent =
     report.evidence.length === 0
       ? "Nu au fost găsite informații publice."
-      : report.score >= 70
-      ? "Exista dovezi suficiente pentru un atac de phishing sau impersonare credibila."
-      : report.score >= 45
-        ? "Exista date corelabile care merita reduse in sursele publice."
-        : "Expunerea estimata este controlata, dar monitorizarea ramane utila.";
+      : aiReport.summary || "Nu există suficiente informații publice pentru a susține acest risc.";
 
   document.querySelector("#metricsRow").innerHTML = `
     <div><strong>${report.metrics.profiles}</strong><span>profile</span></div>
     <div><strong>${report.metrics.documents}</strong><span>documente</span></div>
-    <div><strong>${report.identityTheftProbability}%</strong><span>furt identitate</span></div>
+    <div><strong>${score}%</strong><span>furt identitate</span></div>
   `;
 
   document.querySelector("#reportDate").textContent = new Intl.DateTimeFormat("ro-RO", {
@@ -182,18 +127,8 @@ function renderReport(report) {
     timeStyle: "short",
   }).format(new Date(report.createdAt));
 
-  if (report.evidence.length === 0) {
-    document.querySelector("#aiAnalysis").textContent = "Nu au fost găsite informații publice.";
-  } else {
-    const profile = report.profile;
-    document.querySelector("#aiAnalysis").textContent =
-      `Pentru ${profile.fullName}, raportul este justificat de ${report.evidence.length} dovezi OSINT: ` +
-      `${report.metrics.profiles} profile publice, ${report.metrics.documents} documente si ` +
-      `${report.metrics.sensitive} categorii de date sensibile. Coeficientul estimat de posibilitate de furt ` +
-      `de identitate este ${report.identityTheftProbability}%, deoarece datele gasite pot lega nume, contact, ` +
-      `locatie, documente si identitati de cont. Prioritatea este: ` +
-      `${report.recommendations[0]?.title.toLowerCase() || "monitorizarea periodica a expunerii"}.`;
-  }
+  document.querySelector("#aiAnalysis").textContent =
+    report.pdfError || aiReport.summary || "Nu au fost găsite informații publice.";
 
   document.querySelector("#evidenceList").innerHTML = report.evidence.length
     ? report.evidence
@@ -205,7 +140,7 @@ function renderReport(report) {
               <strong>${escapeHtml(item.type)}</strong>
               <span class="evidence-value">${escapeHtml(evidenceDisplayValue(item))}</span>
             </div>
-            <span class="pill">${item.points ? `+${item.points} risc` : escapeHtml(item.source)}</span>
+            <span class="pill">${escapeHtml(item.source)}</span>
           </div>
           <a class="evidence-url" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">
             ${escapeHtml(item.url)}
@@ -221,43 +156,45 @@ function renderReport(report) {
       .join("")
     : `<article class="evidence-card">Nu au fost găsite informații publice.</article>`;
 
-  document.querySelector("#findingTable").innerHTML = report.matchedRules
-    .map(
-      (rule) => `
+  document.querySelector("#findingTable").innerHTML = reasons.length
+    ? reasons
+      .map(
+        (reason) => `
         <div class="finding-row">
           <div>
-            <strong>${escapeHtml(rule.label)}</strong>
-            <span>${escapeHtml(rule.category)} · bazat pe ${rule.evidence.length} rezultat(e) gasite</span>
+            <strong>${escapeHtml(reason.rule)}</strong>
+            <span>${escapeHtml(reason.recommendation)} · ${escapeHtml(reason.evidence_url)}</span>
           </div>
-          <span class="pill">+${rule.points}</span>
+          <span class="pill">+${escapeHtml(reason.points)}</span>
         </div>
       `,
-    )
-    .join("");
+      )
+      .join("")
+    : `<div class="finding-row"><div><strong>Nu au fost găsite informații publice.</strong></div><span class="pill">+0</span></div>`;
 
-  document.querySelector("#recommendations").innerHTML = report.recommendations
-    .map(
-      (rec) => `
+  document.querySelector("#recommendations").innerHTML = aiReport.recommendations?.length
+    ? aiReport.recommendations
+      .map(
+        (rec) => `
         <div class="recommendation">
           <div>
             <strong>${escapeHtml(rec.title)}</strong>
-            <span>${escapeHtml(rec.reason)}</span>
-            <span>Gasit: ${escapeHtml(rec.basedOn)}</span>
+            <span>${escapeHtml(rec.description)}</span>
+            <span>Gasit: ${escapeHtml((rec.evidence || []).join(" | "))}</span>
           </div>
-          <div class="impact">${rec.impact}%</div>
+          <div class="impact">${escapeHtml(rec.priority)}</div>
         </div>
       `,
-    )
-    .join("") || (report.evidence.length === 0
-      ? `<div class="recommendation"><div><strong>Nu au fost găsite informații publice.</strong></div><div class="impact">0%</div></div>`
-      : "");
+      )
+      .join("")
+    : `<div class="recommendation"><div><strong>Nu au fost găsite informații publice.</strong></div><div class="impact">0</div></div>`;
 
-  renderHistory(report.score);
+  renderHistory(score);
   renderAlerts(report);
 }
 
 function renderHistory(latestScore = null) {
-  const rows = latestScore
+  const rows = latestScore !== null
     ? [...state.history, { label: "Acum", score: latestScore }]
     : state.history;
 
@@ -278,12 +215,10 @@ function renderAlerts(report = null) {
   const alerts = report && report.evidence.length
     ? [
         `A fost detectata o corelare noua pentru ${report.profile.fullName}: ${report.evidence.length} dovezi OSINT active.`,
-        report.metrics.documents
-          ? "Exista documente publice care ar trebui verificate si redactate manual."
-          : "Nu au fost gasite documente publice.",
-        report.identityTheftProbability > 60
-          ? `Coeficientul de furt de identitate este ${report.identityTheftProbability}%, deci prioritatea este eliminarea datelor de contact si a documentelor.`
-          : "Coeficientul de furt de identitate ramane moderat.",
+        `Scor backend: ${report.risk.score}/100, nivel ${report.risk.level}.`,
+        report.risk.reasons.length
+          ? `Factori de risc justificati prin dovezi: ${report.risk.reasons.length}.`
+          : "Nu exista factori de risc fara dovezi.",
       ]
     : ["Nu au fost găsite informații publice."];
 
@@ -312,12 +247,21 @@ form.addEventListener("submit", (event) => {
     state.profile = formToProfile();
     try {
       const liveScan = await scanOnline(state.profile);
-      state.report = buildReport(state.profile, liveScan.evidence || [], liveScan.meta);
+      state.report = buildReport(state.profile, liveScan);
       document.querySelector("#scanState").textContent = liveScan.meta?.mode || "live";
     } catch (error) {
-      state.report = buildReport(state.profile, [], {
-        mode: "eroare",
-        warning: error.message,
+      state.report = buildReport(state.profile, {
+        evidence: [],
+        risk: { score: 0, level: "Low", reasons: [] },
+        aiReport: {
+          summary: error.message,
+          attack_scenarios: [],
+          recommendations: [],
+        },
+        meta: {
+          mode: "eroare",
+          warning: error.message,
+        },
       });
       document.querySelector("#scanState").textContent = "eroare";
     }
@@ -332,20 +276,11 @@ clearForm.addEventListener("click", () => {
 });
 
 exportReport.addEventListener("click", () => {
-  if (!state.report) {
+  if (!state.report || !state.report.pdfUrl) {
     switchView("scan");
     return;
   }
-
-  const blob = new Blob([JSON.stringify(state.report, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `shieldtrace-report-${Date.now()}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  window.open(state.report.pdfUrl, "_blank", "noreferrer");
 });
 
 renderHistory();

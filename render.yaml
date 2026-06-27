@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: shieldtrace-api
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 outputs/server.py
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_ORIGIN
+        sync: false
+      - key: BRAVE_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
