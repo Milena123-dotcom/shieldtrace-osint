@@ -1,48 +1,68 @@
-import hashlib
+import re
 
+from .osint_utils import (
+    contains_email,
+    contains_phone,
+    evidence_id,
+    host_matches,
+    is_valid_http_url,
+    text_contains_name,
+    verify_url_accessible,
+)
 from .search_provider import SearchProvider
 
 
+CV_RE = re.compile(r"\b(cv|curriculum vitae|resume)\b", re.IGNORECASE)
+
+
 QUERY_DEFINITIONS = [
-    ("general", '"{full_name}"', "Locatie", 8, "Date personale"),
-    ("linkedin", '"{full_name}" site:linkedin.com', "Profil social", 12, "Social Engineering"),
-    ("facebook", '"{full_name}" site:facebook.com', "Profil social", 12, "Social Engineering"),
-    ("instagram", '"{full_name}" site:instagram.com', "Profil social", 12, "Social Engineering"),
-    ("pdf", '"{full_name}" filetype:pdf', "Document", 20, "Identity Theft"),
-    ("cv", '"{full_name}" CV', "Document", 20, "Identity Theft"),
-    ("email", '"{full_name}" email', "Email", 10, "Date personale"),
-    ("phone", '"{full_name}" telefon', "Telefon", 15, "Date personale"),
+    {
+        "key": "linkedin",
+        "query": '"{full_name}" site:linkedin.com',
+        "type": "Profil social",
+        "expected_domains": ["linkedin.com"],
+    },
+    {
+        "key": "facebook",
+        "query": '"{full_name}" site:facebook.com',
+        "type": "Profil social",
+        "expected_domains": ["facebook.com"],
+    },
+    {
+        "key": "instagram",
+        "query": '"{full_name}" site:instagram.com',
+        "type": "Profil social",
+        "expected_domains": ["instagram.com"],
+    },
+    {
+        "key": "pdf",
+        "query": '"{full_name}" filetype:pdf',
+        "type": "Document",
+        "expected_domains": [],
+        "requires_pdf": True,
+    },
+    {
+        "key": "cv",
+        "query": '"{full_name}" CV',
+        "type": "Document",
+        "expected_domains": [],
+        "requires_cv": True,
+    },
+    {
+        "key": "email",
+        "query": '"{full_name}" email',
+        "type": "Email",
+        "expected_domains": [],
+        "requires_email": True,
+    },
+    {
+        "key": "phone",
+        "query": '"{full_name}" telefon',
+        "type": "Telefon",
+        "expected_domains": [],
+        "requires_phone": True,
+    },
 ]
-
-RISKS = {
-    "Locatie": "Rezultatul leaga numele de un context public, util pentru phishing personalizat.",
-    "Profil social": "Profilul social poate furniza imagine, rol, contacte, interese sau relatii.",
-    "Document": "Documentele publice pot contine CV, semnatura, date de contact sau istoric profesional.",
-    "Email": "Emailul gasit public permite corelarea conturilor si incercari de resetare.",
-    "Telefon": "Telefonul public creste riscul de smishing, impersonare si recuperare frauduloasa.",
-}
-
-
-def evidence_from_result(result, evidence_type, points, category):
-    url = result.get("url", "")
-    if not url:
-        return None
-
-    snippet = result.get("snippet", "")
-    title = result.get("title", "") or url
-    return {
-        "id": hashlib.sha1(f"{evidence_type}:{url}:{snippet}".encode("utf-8")).hexdigest()[:12],
-        "type": evidence_type,
-        "value": title,
-        "source": result.get("source", "Brave Search"),
-        "url": url,
-        "snippet": snippet,
-        "confidence": result.get("confidence", "high"),
-        "points": points,
-        "category": category,
-        "risk": RISKS[evidence_type],
-        "severity": "ridicat" if points >= 15 else "mediu",
-    }
 
 
 def scan(profile):
@@ -52,10 +72,61 @@ def scan(profile):
 
     provider = SearchProvider()
     evidence = []
-    for _, template, evidence_type, points, category in QUERY_DEFINITIONS:
-        query = template.format(full_name=full_name)
+    seen_urls = set()
+
+    for definition in QUERY_DEFINITIONS:
+        query = definition["query"].format(full_name=full_name)
         for result in provider.search(query):
-            evidence_item = evidence_from_result(result, evidence_type, points, category)
-            if evidence_item:
-                evidence.append(evidence_item)
+            evidence_item = evidence_from_result(result, definition, full_name)
+            if not evidence_item:
+                continue
+
+            dedupe_key = evidence_item["url"].rstrip("/").lower()
+            if dedupe_key in seen_urls:
+                continue
+            seen_urls.add(dedupe_key)
+            evidence.append(evidence_item)
+
     return evidence
+
+
+def evidence_from_result(result, definition, full_name):
+    title = result.get("title", "").strip()
+    url = result.get("url", "").strip()
+    snippet = result.get("snippet", "").strip()
+
+    if not is_valid_http_url(url):
+        return None
+    if not host_matches(url, definition.get("expected_domains", [])):
+        return None
+    if not text_contains_name(title, snippet, full_name):
+        return None
+    if not _matches_required_signal(definition, title, snippet, url):
+        return None
+    if not verify_url_accessible(url):
+        return None
+
+    return {
+        "id": evidence_id(definition["type"], url, snippet),
+        "type": definition["type"],
+        "title": title or url,
+        "value": title or url,
+        "url": url,
+        "snippet": snippet,
+        "source": result.get("source", "Brave Search"),
+        "confidence": result.get("confidence", "high"),
+        "verified": True,
+    }
+
+
+def _matches_required_signal(definition, title, snippet, url):
+    haystack = f"{title} {snippet} {url}".lower()
+    if definition.get("requires_pdf"):
+        return ".pdf" in url.lower()
+    if definition.get("requires_cv"):
+        return bool(CV_RE.search(haystack))
+    if definition.get("requires_email"):
+        return contains_email(title, snippet, url)
+    if definition.get("requires_phone"):
+        return contains_phone(title, snippet)
+    return True

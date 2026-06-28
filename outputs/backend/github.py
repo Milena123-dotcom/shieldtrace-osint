@@ -3,6 +3,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from .osint_utils import is_valid_http_url, verify_url_accessible
+
 
 def scan(username: str) -> list:
     username = username.strip()
@@ -27,7 +29,7 @@ def scan(username: str) -> list:
         return []
 
     url = payload.get("html_url", "")
-    if not url:
+    if not is_valid_http_url(url) or not verify_url_accessible(url):
         return []
 
     metadata = {
@@ -49,6 +51,7 @@ def scan(username: str) -> list:
             "source": "GitHub",
             "snippet": " | ".join(snippet_parts),
             "confidence": "high",
+            "verified": True,
             "metadata": metadata,
         }
     ]

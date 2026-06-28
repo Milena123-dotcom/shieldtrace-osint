@@ -3,6 +3,8 @@ import json
 import urllib.error
 import urllib.request
 
+from .osint_utils import is_valid_http_url, verify_url_accessible
+
 
 def scan(email: str) -> list:
     email = email.strip().lower()
@@ -29,7 +31,7 @@ def scan(email: str) -> list:
 
     entry = entries[0]
     url = entry.get("profileUrl", "")
-    if not url:
+    if not is_valid_http_url(url) or not verify_url_accessible(url):
         return []
 
     metadata = {
@@ -51,6 +53,7 @@ def scan(email: str) -> list:
             "source": "Gravatar",
             "snippet": " | ".join(snippet_parts),
             "confidence": "high",
+            "verified": True,
             "metadata": metadata,
         }
     ]
